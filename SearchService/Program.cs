@@ -26,18 +26,15 @@ builder.Services.AddOpenTelemetry().WithTracing(traceProviderBuilder =>
 builder.Host.UseWolverine(opts =>
 {
     opts.UseRabbitMqUsingNamedConnection("messaging").AutoProvision();
-    opts.ListenToRabbitQueue("question.search", cfg =>
-    {
-        cfg.BindExchange("questions");
-    });
+    opts.ListenToRabbitQueue("question.search", cfg => { cfg.BindExchange("questions"); });
 });
 
 var typesenseUri = builder.Configuration["Services:typesense:typesense:0"];
-if(string.IsNullOrEmpty(typesenseUri))
+if (string.IsNullOrEmpty(typesenseUri))
     throw new InvalidOperationException("Typesense URI not found in configuration");
 
 var typesenseApiKey = builder.Configuration["typesense-api-key"];
-if(string.IsNullOrEmpty(typesenseApiKey))
+if (string.IsNullOrEmpty(typesenseApiKey))
     throw new InvalidOperationException("Typesense API key not found in configuration");
 
 var uri = new Uri(typesenseUri);
@@ -48,7 +45,6 @@ builder.Services.AddTypesenseClient(config =>
     {
         new(uri.Host, uri.Port.ToString(), uri.Scheme)
     };
-
 });
 var app = builder.Build();
 
@@ -57,8 +53,6 @@ if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
 }
-
-
 
 
 app.MapDefaultEndpoints();
@@ -72,8 +66,8 @@ app.MapGet("/search", async (string query, ITypesenseClient client) =>
         tag = tagMatch.Groups[0].Value;
         query = query.Replace(tagMatch.Value, "").Trim();
     }
-    
-    var searchParams = new SearchParameters(query,"title,content");
+
+    var searchParams = new SearchParameters(query, "title,content");
 
     if (!string.IsNullOrWhiteSpace(tag))
     {
@@ -82,17 +76,32 @@ app.MapGet("/search", async (string query, ITypesenseClient client) =>
 
     try
     {
-      var result = await client.Search<SearchQuestion>("questions", searchParams);
-      return Results.Ok(result.Hits.Select(hit => hit.Document));
+        var result = await client.Search<SearchQuestion>("questions", searchParams);
+        return Results.Ok(result.Hits.Select(hit => hit.Document));
     }
     catch (Exception e)
     {
-        return Results.Problem("Typesense search failed",e.Message);
+        return Results.Problem("Typesense search failed", e.Message);
     }
-        
+});
+
+app.MapGet("/search/similar-titles", async (string query, ITypesenseClient client) =>
+{
+    var searchParams = new SearchParameters(query, "title");
+
+    try
+    {
+        var result = await client.Search<SearchQuestion>("questions", searchParams);
+        return Results.Ok(result.Hits.Select(hit => hit.Document));
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem("Typesense search failed", ex.Message);
+    }
+
 });
 
 using var scope = app.Services.CreateScope();
 var client = scope.ServiceProvider.GetRequiredService<ITypesenseClient>();
-await  SearchInitializer.EnsureIndexExists(client);
+await SearchInitializer.EnsureIndexExists(client);
 app.Run();
